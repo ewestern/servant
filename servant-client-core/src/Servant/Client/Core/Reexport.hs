@@ -9,13 +9,10 @@ module Servant.Client.Core.Reexport
     -- * Response (for @Raw@)
   , Response
   , StreamingResponse
-  , GenResponse(..)
+  , ResponseF(..)
 
-  -- * Generic Client
-  , ClientLike(..)
-  , genericMkClientL
-  , genericMkClientP
-  , ServantError(..)
+  -- * Data types
+  , ClientError(..)
   , EmptyClient(..)
 
   -- * BaseUrl
@@ -27,7 +24,7 @@ module Servant.Client.Core.Reexport
   ) where
 
 
-import           Servant.Client.Core.Internal.BaseUrl
-import           Servant.Client.Core.Internal.HasClient
-import           Servant.Client.Core.Internal.Generic
-import           Servant.Client.Core.Internal.Request
+import           Servant.Client.Core.BaseUrl
+import           Servant.Client.Core.HasClient
+import           Servant.Client.Core.Response
+import           Servant.Client.Core.ClientError

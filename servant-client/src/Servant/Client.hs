@@ -9,8 +9,10 @@ module Servant.Client
   , runClientM
   , ClientEnv(..)
   , mkClientEnv
+  , defaultMakeClientRequest
+  , hoistClient
   , module Servant.Client.Core.Reexport
   ) where
 
-import Servant.Client.Core.Reexport
-import Servant.Client.Internal.HttpClient
+import           Servant.Client.Core.Reexport
+import           Servant.Client.Internal.HttpClient

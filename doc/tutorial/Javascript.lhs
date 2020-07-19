@@ -228,13 +228,13 @@ data CommonGeneratorOptions = CommonGeneratorOptions
   {
     -- | function generating function names
     functionNameBuilder :: FunctionName -> Text
-    -- | name used when a user want to send the request body (to let you redefine it)
+    -- | name used when a user wants to send the request body (to let you redefine it)
   , requestBody :: Text
     -- | name of the callback parameter when the request was successful
   , successCallback :: Text
     -- | name of the callback parameter when the request reported an error
   , errorCallback :: Text
-    -- | namespace on which we define the js function (empty mean local var)
+    -- | namespace on which we define the js function (empty means local var)
   , moduleName :: Text
     -- | a prefix that should be prepended to the URL in the generated JS
   , urlPrefix :: Text
@@ -477,7 +477,7 @@ data AngularOptions = AngularOptions
   }
 ```
 
-# Custom function name builder
+## Custom function name builder
 
 Servant comes with three name builders included:
 
@@ -518,4 +518,3 @@ var get_books = function(q, onSuccess, onError)
 }
 
 ```
-

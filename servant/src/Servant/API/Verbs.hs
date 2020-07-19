@@ -29,6 +29,12 @@ import           Network.HTTP.Types.Method
 data Verb (method :: k1) (statusCode :: Nat) (contentTypes :: [*]) (a :: *)
   deriving (Typeable, Generic)
 
+-- | @NoContentVerb@ is a specific type to represent 'NoContent' responses.
+-- It does not require either a list of content types (because there's
+-- no content) or a status code (because it should always be 204).
+data NoContentVerb  (method :: k1)
+  deriving (Typeable, Generic)
+
 -- * 200 responses
 --
 -- The 200 response is the workhorse of web servers, but also fairly generic.
@@ -56,14 +62,17 @@ type Patch  = Verb 'PATCH  200
 -- Indicates that a new resource has been created. The URI corresponding to the
 -- resource should be given in the @Location@ header field.
 --
+-- If the operation is idempotent, use 'PutCreated'. If not, use 'PostCreated'
+--
 -- If the resource cannot be created immediately, use 'PostAccepted'.
 --
--- Consider using 'Servant.Utils.Links.safeLink' for the @Location@ header
+-- Consider using 'Servant.Links.safeLink' for the @Location@ header
 -- field.
 
 -- | 'POST' with 201 status code.
---
 type PostCreated = Verb 'POST 201
+-- | 'PUT' with 201 status code.
+type PutCreated = Verb 'PUT 201
 
 
 -- ** 202 Accepted
@@ -110,15 +119,15 @@ type PutNonAuthoritative    = Verb 'PUT 203
 -- If the document view should be reset, use @205 Reset Content@.
 
 -- | 'GET' with 204 status code.
-type GetNoContent    = Verb 'GET 204
+type GetNoContent    = NoContentVerb 'GET
 -- | 'POST' with 204 status code.
-type PostNoContent   = Verb 'POST 204
+type PostNoContent   = NoContentVerb 'POST
 -- | 'DELETE' with 204 status code.
-type DeleteNoContent = Verb 'DELETE 204
+type DeleteNoContent = NoContentVerb 'DELETE
 -- | 'PATCH' with 204 status code.
-type PatchNoContent  = Verb 'PATCH 204
+type PatchNoContent  = NoContentVerb 'PATCH
 -- | 'PUT' with 204 status code.
-type PutNoContent    = Verb 'PUT 204
+type PutNoContent    = NoContentVerb 'PUT
 
 
 -- ** 205 Reset Content

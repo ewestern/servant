@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -8,8 +7,6 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeOperators              #-}
 
-#include "overlapping-compat.h"
-
 module Servant.Server.Internal.Context where
 
 import           Data.Proxy
@@ -18,12 +15,12 @@ import           GHC.TypeLits
 -- | 'Context's are used to pass values to combinators. (They are __not__ meant
 -- to be used to pass parameters to your handlers, i.e. they should not replace
 -- any custom 'Control.Monad.Trans.Reader.ReaderT'-monad-stack that you're using
--- with 'Servant.Utils.Enter'.) If you don't use combinators that
+-- with 'hoistServer'.) If you don't use combinators that
 -- require any context entries, you can just use 'Servant.Server.serve' as always.
 --
 -- If you are using combinators that require a non-empty 'Context' you have to
 -- use 'Servant.Server.serveWithContext' and pass it a 'Context' that contains all
--- the values your combinators need. A 'Context' is essentially a heterogenous
+-- the values your combinators need. A 'Context' is essentially a heterogeneous
 -- list and accessing the elements is being done by type (see 'getContextEntry').
 -- The parameter of the type 'Context' is a type-level list reflecting the types
 -- of the contained context entries. To create a 'Context' with entries, use the
@@ -64,11 +61,11 @@ instance (Eq a, Eq (Context as)) => Eq (Context (a ': as)) where
 class HasContextEntry (context :: [*]) (val :: *) where
     getContextEntry :: Context context -> val
 
-instance OVERLAPPABLE_
+instance {-# OVERLAPPABLE #-}
          HasContextEntry xs val => HasContextEntry (notIt ': xs) val where
     getContextEntry (_ :. xs) = getContextEntry xs
 
-instance OVERLAPPING_
+instance {-# OVERLAPPING #-}
          HasContextEntry (val ': xs) val where
     getContextEntry (x :. _) = x
 

@@ -21,6 +21,7 @@ Or `nix`:
 ./scripts/generate-nix-files.sh   # Get up-to-date shell.nix files
 ```
 
+To build the docs, see `doc/README.md`.
 
 ## General
 
@@ -34,8 +35,34 @@ Some things we like:
 Though we aren't sticklers for style, the `.stylish-haskell.yaml` and `HLint.hs`
 files in the repository provide a good baseline for consistency.
 
-Please include a description of the changes in your PR in the `CHANGELOG.md` of
-the packages you've changed. And of course, write tests!
+**Important**: please do not modify the versions of the servant packages you are sending patches for.
+
+## Changelog entries
+
+We experiment with using [changelog-d tool](https://github.com/phadej/changelog-d) to assemble changelogs.
+You are not required to install it.
+
+In each PR please add a file to `changelog.d` directory named after issue you are solving or the pull request itself (in a separate commit after you know the pull request number). For example
+
+```cabal
+synopsis: One sentence summary of the change.
+prs: #1219
+issues: #1028
+
+description: {
+
+A longer description. Small changes don't need this.
+Bigger ones definitely do, for example we try to include migration hints
+for breaking changes.
+
+However if you don't know what to write, that's ok too.
+
+By the way, the braces around are omitted when the file is parsed.
+They can be used so the field doesn't need to be indented, which is handy
+for prose.
+
+}
+```
 
 ## PR process
 
@@ -76,7 +103,7 @@ the `news` label if you make a new package so we can know about it!
 
 ## Release policy
 
-We are currently moving to a more aggresive release policy, so that you can get
+We are currently moving to a more aggressive release policy, so that you can get
 what you contribute from Hackage fairly soon. However, note that prior to major
 releases it may take some time in between releases.
 

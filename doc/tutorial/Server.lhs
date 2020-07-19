@@ -29,7 +29,7 @@ import Prelude.Compat
 
 import Control.Monad.Except
 import Control.Monad.Reader
-import Data.Aeson.Compat
+import Data.Aeson
 import Data.Aeson.Types
 import Data.Attoparsec.ByteString
 import Data.ByteString (ByteString)
@@ -46,6 +46,7 @@ import Servant
 import System.Directory
 import Text.Blaze
 import Text.Blaze.Html.Renderer.Utf8
+import Servant.Types.SourceT (source)
 import qualified Data.Aeson.Parser
 import qualified Text.Blaze.Html
 ```
@@ -93,12 +94,6 @@ users1 =
   [ User "Isaac Newton"    372 "isaac@newton.co.uk" (fromGregorian 1683  3 1)
   , User "Albert Einstein" 136 "ae@mc2.org"         (fromGregorian 1905 12 1)
   ]
-```
-
-Let's also write our API type.
-
-``` haskell ignore
-type UserAPI1 = "users" :> Get '[JSON] [User]
 ```
 
 We can now take care of writing the actual webservice that will handle requests
@@ -188,7 +183,7 @@ users2 = [isaac, albert]
 
 Now, just like we separate the various endpoints in `UserAPI` with `:<|>`, we
 are going to separate the handlers with `:<|>` too! They must be provided in
-the same order as in in the API type.
+the same order as in the API type.
 
 ``` haskell
 server2 :: Server UserAPI2
@@ -604,7 +599,7 @@ $ curl -H 'Accept: text/html' http://localhost:8081/persons
 
 ## The `Handler` monad
 
-At the heart of the handlers is the monad they run in, namely a newtype `Handler` around `ExceptT ServantErr IO`
+At the heart of the handlers is the monad they run in, namely a newtype `Handler` around `ExceptT ServerError IO`
 ([haddock documentation for `ExceptT`](http://hackage.haskell.org/package/mtl-2.2.1/docs/Control-Monad-Except.html#t:ExceptT)).
 One might wonder: why this monad? The answer is that it is the
 simplest monad with the following properties:
@@ -622,12 +617,12 @@ newtype ExceptT e m a = ExceptT (m (Either e a))
 ```
 
 In short, this means that a handler of type `Handler a` is simply
-equivalent to a computation of type `IO (Either ServantErr a)`, that is, an IO
+equivalent to a computation of type `IO (Either ServerError a)`, that is, an IO
 action that either returns an error or a result.
 
-The module [`Control.Monad.Except`](https://hackage.haskell.org/package/mtl-2.2.1/docs/Control-Monad-Except.html#t:ExceptT)
+The module [`Control.Monad.Except`](https://hackage.haskell.org/package/mtl/docs/Control-Monad-Except.html#t:ExceptT)
 from which `ExceptT` comes is worth looking at.
-Perhaps most importantly, `ExceptT` and `Handler` are an instances of `MonadError`, so
+Perhaps most importantly, `ExceptT` and `Handler` are instances of `MonadError`, so
 `throwError` can be used to return an error from your handler (whereas `return`
         is enough to return a success).
 
@@ -637,9 +632,9 @@ kind and abort early. The next two sections cover how to do just that.
 
 ### Performing IO
 
-Another important instances from the list above are `MonadIO m => MonadIO
-(ExceptT e m)`, and therefore also `MonadIO Handler` as there is `MonadIO IO` instance..
-[`MonadIO`](http://hackage.haskell.org/package/transformers-0.4.3.0/docs/Control-Monad-IO-Class.html)
+Other important instances from the list above are `MonadIO m => MonadIO
+(ExceptT e m)`, and therefore also `MonadIO Handler` as there is a `MonadIO IO` instance.
+[`MonadIO`](http://hackage.haskell.org/package/base/docs/Control-Monad-IO-Class.html#t:MonadIO)
 is a class from the **transformers** package defined as:
 
 ``` haskell ignore
@@ -665,16 +660,16 @@ server5 = do
   return (FileContent filecontent)
 ```
 
-### Failing, through `ServantErr`
+### Failing, through `ServerError`
 
 If you want to explicitly fail at providing the result promised by an endpoint
 using the appropriate HTTP status code (not found, unauthorized, etc) and some
 error message, all you have to do is use the `throwError` function mentioned above
-and provide it with the appropriate value of type `ServantErr`, which is
+and provide it with the appropriate value of type `ServerError`, which is
 defined as:
 
 ``` haskell ignore
-data ServantErr = ServantErr
+data ServerError = ServerError
     { errHTTPCode     :: Int
     , errReasonPhrase :: String
     , errBody         :: ByteString -- lazy bytestring
@@ -690,7 +685,7 @@ use record update syntax:
 failingHandler :: Handler ()
 failingHandler = throwError myerr
 
-  where myerr :: ServantErr
+  where myerr :: ServerError
         myerr = err503 { errBody = "Sorry dear user." }
 ```
 
@@ -721,7 +716,7 @@ $ curl --verbose http://localhost:8081/myfile.txt
 >
 < HTTP/1.1 404 Not Found
 [snip]
-myfile.txt just isnt there, please leave this server alone.
+myfile.txt just isn't there, please leave this server alone.
 
 $ echo Hello > myfile.txt
 
@@ -823,7 +818,7 @@ If it doesn't exist, the handler will fail with a `404` status code.
 
 `serveDirectoryWebApp` uses some standard settings that fit the use case of
 serving static files for most web apps. You can find out about the other
-options in the documentation of the `Servant.Utils.StaticFiles` module.
+options in the documentation of the `Servant.Server.StaticFiles` module.
 
 ## Nested APIs
 
@@ -835,7 +830,7 @@ type UserAPI3 = -- view the user with given userid, in JSON
                 Capture "userid" Int :> Get '[JSON] User
 
            :<|> -- delete the user with given userid. empty response
-                Capture "userid" Int :> DeleteNoContent '[JSON] NoContent
+                Capture "userid" Int :> DeleteNoContent
 ```
 
 We can instead factor out the `userid`:
@@ -843,7 +838,7 @@ We can instead factor out the `userid`:
 ``` haskell
 type UserAPI4 = Capture "userid" Int :>
   (    Get '[JSON] User
-  :<|> DeleteNoContent '[JSON] NoContent
+  :<|> DeleteNoContent
   )
 ```
 
@@ -901,13 +896,13 @@ type API1 = "users" :>
 -- we factor out the Request Body
 type API2 = ReqBody '[JSON] User :>
   (    Get '[JSON] User -- just display the same user back, don't register it
-  :<|> PostNoContent '[JSON] NoContent  -- register the user. empty response
+  :<|> PostNoContent -- register the user. empty response
   )
 
 -- we factor out a Header
 type API3 = Header "Authorization" Token :>
   (    Get '[JSON] SecretData -- get some secret data, if authorized
-  :<|> ReqBody '[JSON] SecretData :> PostNoContent '[JSON] NoContent -- add some secret data, if authorized
+  :<|> ReqBody '[JSON] SecretData :> PostNoContent -- add some secret data, if authorized
   )
 
 newtype Token = Token ByteString
@@ -920,11 +915,11 @@ API type only at the end.
 ``` haskell
 type UsersAPI =
        Get '[JSON] [User] -- list users
-  :<|> ReqBody '[JSON] User :> PostNoContent '[JSON] NoContent -- add a user
+  :<|> ReqBody '[JSON] User :> PostNoContent -- add a user
   :<|> Capture "userid" Int :>
          ( Get '[JSON] User -- view a user
-      :<|> ReqBody '[JSON] User :> PutNoContent '[JSON] NoContent -- update a user
-      :<|> DeleteNoContent '[JSON] NoContent -- delete a user
+      :<|> ReqBody '[JSON] User :> PutNoContent -- update a user
+      :<|> DeleteNoContent -- delete a user
          )
 
 usersServer :: Server UsersAPI
@@ -953,11 +948,11 @@ usersServer = getUsers :<|> newUser :<|> userOperations
 ``` haskell
 type ProductsAPI =
        Get '[JSON] [Product] -- list products
-  :<|> ReqBody '[JSON] Product :> PostNoContent '[JSON] NoContent -- add a product
+  :<|> ReqBody '[JSON] Product :> PostNoContent -- add a product
   :<|> Capture "productid" Int :>
          ( Get '[JSON] Product -- view a product
-      :<|> ReqBody '[JSON] Product :> PutNoContent '[JSON] NoContent -- update a product
-      :<|> DeleteNoContent '[JSON] NoContent -- delete a product
+      :<|> ReqBody '[JSON] Product :> PutNoContent -- update a product
+      :<|> DeleteNoContent -- delete a product
          )
 
 data Product = Product { productId :: Int }
@@ -1001,11 +996,11 @@ abstract that away:
 -- indexed by values of type 'i'
 type APIFor a i =
        Get '[JSON] [a] -- list 'a's
-  :<|> ReqBody '[JSON] a :> PostNoContent '[JSON] NoContent -- add an 'a'
+  :<|> ReqBody '[JSON] a :> PostNoContent -- add an 'a'
   :<|> Capture "id" i :>
          ( Get '[JSON] a -- view an 'a' given its "identifier" of type 'i'
-      :<|> ReqBody '[JSON] a :> PutNoContent '[JSON] NoContent -- update an 'a'
-      :<|> DeleteNoContent '[JSON] NoContent -- delete an 'a'
+      :<|> ReqBody '[JSON] a :> PutNoContent -- update an 'a'
+      :<|> DeleteNoContent -- delete an 'a'
          )
 
 -- Build the appropriate 'Server'
@@ -1133,14 +1128,14 @@ This is the webservice in action:
 ``` bash
 $ curl http://localhost:8081/a
 1797
-$ curl http://localhost:8081/b
-"hi"
+$ curl http://localhost:8081/b -X GET -d '42.0' -H 'Content-Type: application/json'
+true
 ```
 
 ### An arrow is a reader too.
 
 In previous versions of `servant` we had an `enter` to do what `hoistServer`
-does now. `enter` had a ambitious design goals, but was problematic in practice.
+does now. `enter` had an ambitious design goals, but was problematic in practice.
 
 One problematic situation was when the source monad was `(->) r`, yet it's
 handy in practice, because `(->) r` is isomorphic to `Reader r`.
@@ -1166,24 +1161,37 @@ app5 = serve readerAPI (hoistServer readerAPI funToHandler funServerT)
 
 ## Streaming endpoints
 
-We can create endpoints that don't just give back a single result, but give back a *stream* of results, served one at a time. Stream endpoints only provide a single content type, and also specify what framing strategy is used to delineate the results. To serve these results, we need to give back a stream producer. Adapters can be written to `Pipes`, `Conduit` and the like, or written directly as `StreamGenerator`s. StreamGenerators are IO-based continuations that are handed two functions -- the first to write the first result back, and the second to write all subsequent results back. (This is to allow handling of situations where the entire stream is prefixed by a header, or where a boundary is written between elements, but not prior to the first element). The API of a streaming endpoint needs to explicitly specify which sort of generator it produces. Note that the generator itself is returned by a `Handler` action, so that additional IO may be done in the creation of one.
+We can create endpoints that don't just give back a single result, but give
+back a *stream* of results, served one at a time. Stream endpoints only provide
+a single content type, and also specify what framing strategy is used to
+delineate the results. To serve these results, we need to give back a stream
+producer. Adapters can be written to *Pipes*, *Conduit* and the like, or
+written directly as `SourceIO`s. SourceIO builds upon servant's own `SourceT`
+stream type (it's simpler than *Pipes* or *Conduit*).
+The API of a streaming endpoint needs to explicitly specify which sort of
+generator it produces. Note that the generator itself is returned by a
+`Handler` action, so that additional IO may be done in the creation of one.
 
 ``` haskell
-type StreamAPI = "userStream" :> StreamGet NewlineFraming JSON (StreamGenerator User)
+type StreamAPI = "userStream" :> StreamGet NewlineFraming JSON (SourceIO User)
 streamAPI :: Proxy StreamAPI
 streamAPI = Proxy
 
-streamUsers :: StreamGenerator User
-streamUsers = StreamGenerator $ \sendFirst sendRest -> do
-                       sendFirst isaac
-                       sendRest  albert
-                       sendRest  albert
+streamUsers :: SourceIO User
+streamUsers = source [isaac, albert, albert]
 
 app6 :: Application
 app6 = serve streamAPI (return streamUsers)
 ```
 
-This simple application returns a stream of `User` values encoded in JSON format, with each value separated by a newline. In this case, the stream will consist of the value of `isaac`, followed by the value of `albert`, then the value of `albert` a third time. Importantly, the stream is written back as results are produced, rather than all at once. This means first that results are delivered when they are available, and second, that if an exception interrupts production of the full stream, nonetheless partial results have already been written back.
+This simple application returns a stream of `User` values encoded in JSON
+format, with each value separated by a newline. In this case, the stream will
+consist of the value of `isaac`, followed by the value of `albert`, then the
+value of `albert` a second time. Importantly, the stream is written back as
+results are produced, rather than all at once. This means first that results
+are delivered when they are available, and second, that if an exception
+interrupts production of the full stream, nonetheless partial results have
+already been written back.
 
 ## Conclusion
 

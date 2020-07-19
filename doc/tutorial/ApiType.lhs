@@ -129,16 +129,23 @@ type UserAPI4 = "users" :> Get '[JSON] [User]
 
 ### `StreamGet` and `StreamPost`
 
+*Note*: Streaming has changed considerably in `servant-0.15`.
+
 The `StreamGet` and `StreamPost` combinators are defined in terms of the more general `Stream`
 
 ``` haskell ignore
-data Stream (method :: k1) (framing :: *) (contentType :: *) a
-type StreamGet  = Stream 'GET
-type StreamPost = Stream 'POST
+data Stream (method :: k1) (status :: Nat) (framing :: *) (contentType :: *) (a :: *)
+
+type StreamGet  = Stream 'GET 200
+type StreamPost = Stream 'POST 200
 ```
 
-These describe endpoints that return a stream of values rather than just a single value. They not only take a single content type as a parameter, but also a framing strategy -- this specifies how the individual results are delineated from one another in the stream. The two standard strategies given with Servant are `NewlineFraming` and `NetstringFraming`, but others can be written to match other protocols.
-
+These describe endpoints that return a stream of values rather than just a
+single value. They not only take a single content type as a parameter, but also
+a framing strategy -- this specifies how the individual results are delineated
+from one another in the stream. The three standard strategies given with
+Servant are `NewlineFraming`, `NetstringFraming` and `NoFraming`, but others
+can be written to match other protocols.
 
 ### `Capture`
 
@@ -170,13 +177,12 @@ type UserAPI5 = "user" :> Capture "userid" Integer :> Get '[JSON] User
                 -- except that we explicitly say that "userid"
                 -- must be an integer
 
-           :<|> "user" :> Capture "userid" Integer :> DeleteNoContent '[JSON] NoContent
+           :<|> "user" :> Capture "userid" Integer :> DeleteNoContent
                 -- equivalent to 'DELETE /user/:userid'
 ```
 
-In the second case, `DeleteNoContent` specifies a 204 response code,
-`JSON` specifies the content types on which the handler will match,
-and `NoContent` says that the response will always be empty.
+In the second case, `DeleteNoContent` specifies a 204 response code
+and that the response will always be empty.
 
 ### `QueryParam`, `QueryParams`, `QueryFlag`
 

@@ -17,7 +17,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Text.Encoding (encodeUtf8)
-import Network (withSocketsDo)
+import Network.Socket (withSocketsDo)
 import Network.HTTP.Client hiding (Proxy)
 import Network.HTTP.Client.MultipartFormData
 import Network.Wai.Handler.Warp
@@ -90,8 +90,8 @@ startServer = run 8080 (serve api upload)
 
 Finally, a main function that brings up our server and
 sends some test request with `http-client` (and not
-servant-client this time, has servant-multipart does not
-yet have support for client generation.
+servant-client this time, as servant-multipart does not
+yet have support for client generation).
 
 ``` haskell
 main :: IO ()
@@ -126,7 +126,7 @@ Content of "README.md"
 
 ## Getting Started
 
-We have a [tutorial](http://haskell-servant.readthedocs.org/en/stable/tutorial/index.html) that
+We have a [tutorial](http://docs.servant.dev/en/stable/tutorial/index.html) that
 introduces the core features of servant. After this article, you should be able
 to write your first servant webservices, learning the rest from the haddocks'
 examples.

@@ -1,6 +1,6 @@
 # Using a custom monad
 
-In this section we will create and API for a book shelf without any backing DB storage.
+In this section we will create an API for a book shelf without any backing DB storage.
 We will keep state in memory and share it between requests using `Reader` monad and `STM`.
 
 We start with a pretty standard set of imports and definition of the model:
@@ -115,3 +115,6 @@ Running cookbook-using-custom-monad...
 [Book "To Kill a Mockingbird",Book "Harry Potter and the Order of the Phoenix"]
 [Book "The Picture of Dorian Gray",Book "To Kill a Mockingbird",Book "Harry Potter and the Order of the Phoenix"]
 ```
+
+To use `Raw` endpoints, look at the
+[servant-rawm](http://hackage.haskell.org/package/servant-rawm) package.

@@ -1,0 +1,10 @@
+-- Using https://launchpad.net/~hvr/+archive/ubuntu/ghcjs
+
+packages:
+  servant/
+  servant-client-core/
+  servant-jsaddle/
+
+-- we need to tell cabal we are using GHCJS
+compiler: ghcjs
+tests: True

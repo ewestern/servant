@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                    #-}
 {-# LANGUAGE ConstraintKinds        #-}
 {-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE DefaultSignatures      #-}
@@ -17,41 +16,55 @@
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE UndecidableInstances   #-}
 
-#include "overlapping-compat.h"
 module Servant.Docs.Internal where
 
-import           Prelude                    ()
+import           Prelude ()
 import           Prelude.Compat
 
 import           Control.Applicative
-import           Control.Arrow              (second)
-import           Control.Lens               (makeLenses, mapped, over,
-                                             traversed, view, (%~), (&), (.~),
-                                             (<>~), (^.), (|>))
-import qualified Control.Monad.Omega        as Omega
+import           Control.Arrow
+                 (second)
+import           Control.Lens
+                 (makeLenses, mapped, over, traversed, view, (%~), (&), (.~),
+                 (<>~), (^.), (|>))
 import qualified Data.ByteString.Char8      as BSC
-import           Data.ByteString.Lazy.Char8 (ByteString)
+import           Data.ByteString.Lazy.Char8
+                 (ByteString)
 import qualified Data.CaseInsensitive       as CI
-import           Data.Foldable              (fold)
-import           Data.Hashable              (Hashable)
-import           Data.HashMap.Strict        (HashMap)
-import           Data.List.Compat           (intercalate, intersperse, sort)
-import           Data.List.NonEmpty         (NonEmpty ((:|)), groupWith)
+import           Data.Foldable
+                 (toList)
+import           Data.Foldable
+                 (fold)
+import           Data.Hashable
+                 (Hashable)
+import           Data.HashMap.Strict
+                 (HashMap)
+import           Data.List.Compat
+                 (intercalate, intersperse, sort)
+import           Data.List.NonEmpty
+                 (NonEmpty ((:|)), groupWith)
 import qualified Data.List.NonEmpty         as NE
 import           Data.Maybe
-import           Data.Monoid                (All (..), Any (..), Dual (..),
-                                             First (..), Last (..),
-                                             Product (..), Sum (..))
-import           Data.Ord                   (comparing)
-import           Data.Proxy                 (Proxy (Proxy))
-import           Data.Semigroup             (Semigroup (..))
-import           Data.String.Conversions    (cs)
-import           Data.Text                  (Text, unpack)
+import           Data.Monoid
+                 (All (..), Any (..), Dual (..), First (..), Last (..),
+                 Product (..), Sum (..))
+import           Data.Ord
+                 (comparing)
+import           Data.Proxy
+                 (Proxy (Proxy))
+import           Data.Semigroup
+                 (Semigroup (..))
+import           Data.String.Conversions
+                 (cs)
+import           Data.Text
+                 (Text, unpack)
 import           GHC.Generics
 import           GHC.TypeLits
 import           Servant.API
 import           Servant.API.ContentTypes
 import           Servant.API.TypeLevel
+
+import qualified Data.Universe.Helpers as U
 
 import qualified Data.HashMap.Strict        as HM
 import qualified Data.Text                  as T
@@ -64,14 +77,15 @@ import qualified Network.HTTP.Types         as HTTP
 -- or any 'Endpoint' value you want using the 'path' and 'method'
 -- lenses to tweak.
 --
--- @
--- λ> 'defEndpoint'
--- GET /
--- λ> 'defEndpoint' & 'path' '<>~' ["foo"]
--- GET /foo
--- λ> 'defEndpoint' & 'path' '<>~' ["foo"] & 'method' '.~' 'HTTP.methodPost'
--- POST /foo
--- @
+-- >>> defEndpoint
+-- "GET" /
+--
+-- >>> defEndpoint & path <>~ ["foo"]
+-- "GET" /foo
+--
+-- >>> defEndpoint & path <>~ ["foo"] & method .~ HTTP.methodPost
+-- "POST" /foo
+--
 data Endpoint = Endpoint
   { _path   :: [String]      -- type collected
   , _method :: HTTP.Method   -- type collected
@@ -92,14 +106,15 @@ showPath ps = concatMap ('/' :) ps
 --
 -- Here's how you can modify it:
 --
--- @
--- λ> 'defEndpoint'
--- GET /
--- λ> 'defEndpoint' & 'path' '<>~' ["foo"]
--- GET /foo
--- λ> 'defEndpoint' & 'path' '<>~' ["foo"] & 'method' '.~' 'HTTP.methodPost'
--- POST /foo
--- @
+-- >>> defEndpoint
+-- "GET" /
+--
+-- >>> defEndpoint & path <>~ ["foo"]
+-- "GET" /foo
+--
+-- >>> defEndpoint & path <>~ ["foo"] & method .~ HTTP.methodPost
+-- "POST" /foo
+--
 defEndpoint :: Endpoint
 defEndpoint = Endpoint [] HTTP.methodGet
 
@@ -116,7 +131,8 @@ instance Semigroup API where
     (<>) = mappend
 
 instance Monoid API where
-    API a1 b1 `mappend` API a2 b2 = API (a1 `mappend` a2) (b1 `mappend` b2)
+    API a1 b1 `mappend` API a2 b2 = API (a1 `mappend` a2)
+                                        (HM.unionWith combineAction b1 b2)
     mempty = API mempty mempty
 
 -- | An empty 'API'
@@ -210,12 +226,14 @@ data ParamKind = Normal | List | Flag
 -- want to write a 'ToSample' instance for the type that'll be represented
 -- as encoded data in the response.
 --
--- Can be tweaked with three lenses.
+-- Can be tweaked with four lenses.
 --
--- > λ> defResponse
--- > Response {_respStatus = 200, _respTypes = [], _respBody = []}
--- > λ> defResponse & respStatus .~ 204 & respBody .~ [("If everything goes well", "{ \"status\": \"ok\" }")]
--- > Response {_respStatus = 204, _respTypes = [], _respBody = [("If everything goes well", "{ \"status\": \"ok\" }")]}
+-- >>> defResponse
+-- Response {_respStatus = 200, _respTypes = [], _respBody = [], _respHeaders = []}
+--
+-- >>> defResponse & respStatus .~ 204 & respBody .~ [("If everything goes well", "application/json", "{ \"status\": \"ok\" }")]
+-- Response {_respStatus = 204, _respTypes = [], _respBody = [("If everything goes well",application/json,"{ \"status\": \"ok\" }")], _respHeaders = []}
+--
 data Response = Response
   { _respStatus  :: Int
   , _respTypes   :: [M.MediaType]
@@ -223,14 +241,25 @@ data Response = Response
   , _respHeaders :: [HTTP.Header]
   } deriving (Eq, Ord, Show)
 
+-- | Combine two Responses, we can't make a monoid because merging Status breaks
+-- the laws.
+--
+-- As such, we invent a non-commutative, left associative operation
+-- 'combineResponse' to mush two together taking the status from the very left.
+combineResponse :: Response -> Response -> Response
+Response s ts bs hs `combineResponse` Response _ ts' bs' hs'
+  = Response s (ts <> ts') (bs <> bs') (hs <> hs')
+
 -- | Default response: status code 200, no response body.
 --
--- Can be tweaked with two lenses.
+-- Can be tweaked with four lenses.
 --
--- > λ> defResponse
--- > Response {_respStatus = 200, _respBody = Nothing}
--- > λ> defResponse & respStatus .~ 204 & respBody .~ Just "[]"
--- > Response {_respStatus = 204, _respBody = Just "[]"}
+-- >>> defResponse
+-- Response {_respStatus = 200, _respTypes = [], _respBody = [], _respHeaders = []}
+--
+-- >>> defResponse & respStatus .~ 204
+-- Response {_respStatus = 204, _respTypes = [], _respBody = [], _respHeaders = []}
+--
 defResponse :: Response
 defResponse = Response
   { _respStatus  = 200
@@ -265,21 +294,22 @@ data Action = Action
 -- laws.
 --
 -- As such, we invent a non-commutative, left associative operation
--- 'combineAction' to mush two together taking the response, body and content
--- types from the very left.
+-- 'combineAction' to mush two together taking the response from the very left.
 combineAction :: Action -> Action -> Action
-Action a c h p n m ts body resp `combineAction` Action a' c' h' p' n' m' _ _ _ =
-        Action (a <> a') (c <> c') (h <> h') (p <> p') (n <> n') (m <> m') ts body resp
+Action a c h p n m ts body resp `combineAction` Action a' c' h' p' n' m' ts' body' resp' =
+        Action (a <> a') (c <> c') (h <> h') (p <> p') (n <> n') (m <> m') (ts <> ts') (body <> body') (resp `combineResponse` resp')
 
 -- | Default 'Action'. Has no 'captures', no query 'params', expects
 -- no request body ('rqbody') and the typical response is 'defResponse'.
 --
 -- Tweakable with lenses.
 --
--- > λ> defAction
--- > Action {_captures = [], _headers = [], _params = [], _mxParams = [], _rqbody = Nothing, _response = Response {_respStatus = 200, _respBody = Nothing}}
--- > λ> defAction & response.respStatus .~ 201
--- > Action {_captures = [], _headers = [], _params = [], _mxParams = [], _rqbody = Nothing, _response = Response {_respStatus = 201, _respBody = Nothing}}
+-- >>> defAction
+-- Action {_authInfo = [], _captures = [], _headers = [], _params = [], _notes = [], _mxParams = [], _rqtypes = [], _rqbody = [], _response = Response {_respStatus = 200, _respTypes = [], _respBody = [], _respHeaders = []}}
+--
+-- >>> defAction & response.respStatus .~ 201
+-- Action {_authInfo = [], _captures = [], _headers = [], _params = [], _notes = [], _mxParams = [], _rqtypes = [], _rqbody = [], _response = Response {_respStatus = 201, _respTypes = [], _respBody = [], _respHeaders = []}}
+--
 defAction :: Action
 defAction =
   Action []
@@ -347,7 +377,8 @@ makeLenses ''RenderingOptions
 -- | Generate the docs for a given API that implements 'HasDocs'. This is the
 -- default way to create documentation.
 --
--- prop> docs == docsWithOptions defaultDocOptions
+-- > docs == docsWithOptions defaultDocOptions
+--
 docs :: HasDocs api => Proxy api -> API
 docs p = docsWithOptions p defaultDocOptions
 
@@ -365,7 +396,7 @@ docsWithOptions p = docsFor p (defEndpoint, defAction)
 -- >     extraInfo (Proxy :: Proxy ("greet" :> Capture "greetid" Text :> Delete)) $
 -- >              defAction & headers <>~ ["unicorns"]
 -- >                        & notes   <>~ [ DocNote "Title" ["This is some text"]
--- >                                      , DocNote "Second secton" ["And some more"]
+-- >                                      , DocNote "Second section" ["And some more"]
 -- >                                      ]
 
 extraInfo :: (IsIn endpoint api, HasLink endpoint, HasDocs endpoint)
@@ -458,22 +489,22 @@ samples = map ("",)
 
 -- | Default sample Generic-based inputs/outputs.
 defaultSamples :: forall a. (Generic a, GToSample (Rep a)) => Proxy a -> [(Text, a)]
-defaultSamples _ = Omega.runOmega $ second to <$> gtoSamples (Proxy :: Proxy (Rep a))
+defaultSamples _ = second to <$> gtoSamples (Proxy :: Proxy (Rep a))
 
 -- | @'ToSample'@ for Generics.
 --
--- The use of @'Omega'@ allows for more productive sample generation.
+-- Note: we use combinators from "Universe.Data.Helpers" for more productive sample generation.
 class GToSample t where
-  gtoSamples :: proxy t -> Omega.Omega (Text, t x)
+  gtoSamples :: proxy t -> [(Text, t x)]
 
 instance GToSample U1 where
-  gtoSamples _ = Omega.each (singleSample U1)
+  gtoSamples _ = singleSample U1
 
 instance GToSample V1 where
   gtoSamples _ = empty
 
 instance (GToSample p, GToSample q) => GToSample (p :*: q) where
-  gtoSamples _ = render <$> ps <*> qs
+  gtoSamples _ = U.cartesianProduct render ps qs
     where
       ps = gtoSamples (Proxy :: Proxy p)
       qs = gtoSamples (Proxy :: Proxy q)
@@ -482,13 +513,13 @@ instance (GToSample p, GToSample q) => GToSample (p :*: q) where
         | otherwise              = (ta <> ", " <> tb, a :*: b)
 
 instance (GToSample p, GToSample q) => GToSample (p :+: q) where
-  gtoSamples _ = lefts <|> rights
+  gtoSamples _ = lefts U.+++ rights
     where
       lefts  = second L1 <$> gtoSamples (Proxy :: Proxy p)
       rights = second R1 <$> gtoSamples (Proxy :: Proxy q)
 
 instance ToSample a => GToSample (K1 i a) where
-  gtoSamples _ = second K1 <$> Omega.each (toSamples (Proxy :: Proxy a))
+  gtoSamples _ = second K1 <$> toSamples (Proxy :: Proxy a)
 
 instance (GToSample f) => GToSample (M1 i a f) where
   gtoSamples _ = second M1 <$> gtoSamples (Proxy :: Proxy f)
@@ -750,9 +781,9 @@ markdownWith RenderingOptions{..}  api = unlines $
 
         contentStr mime_type body =
           "" :
-          "    ```" <> markdownForType mime_type :
+          "```" <> markdownForType mime_type :
           cs body :
-          "    ```" :
+          "```" :
           "" :
           []
 
@@ -776,7 +807,7 @@ markdownWith RenderingOptions{..}  api = unlines $
 
 -- | The generated docs for @a ':<|>' b@ just appends the docs
 --   for @a@ with the docs for @b@.
-instance OVERLAPPABLE_
+instance {-# OVERLAPPABLE #-}
          (HasDocs a, HasDocs b)
       => HasDocs (a :<|> b) where
 
@@ -824,7 +855,7 @@ instance (KnownSymbol sym, ToCapture (CaptureAll sym a), HasDocs sublayout)
           symP = Proxy :: Proxy sym
 
 
-instance OVERLAPPABLE_
+instance {-# OVERLAPPABLE #-}
         (ToSample a, AllMimeRender (ct ': cts) a, KnownNat status
         , ReflectMethod method)
     => HasDocs (Verb method status (ct ': cts) a) where
@@ -840,7 +871,37 @@ instance OVERLAPPABLE_
           status = fromInteger $ natVal (Proxy :: Proxy status)
           p = Proxy :: Proxy a
 
-instance OVERLAPPING_
+instance (ReflectMethod method) =>
+         HasDocs (NoContentVerb method) where
+  docsFor Proxy (endpoint, action) DocOptions{..} =
+    single endpoint' action'
+
+    where endpoint' = endpoint & method .~ method'
+          action' = action & response.respStatus .~ 204
+                           & response.respTypes .~ []
+                           & response.respBody .~ []
+                           & response.respHeaders .~ []
+          method' = reflectMethod (Proxy :: Proxy method)
+
+-- | TODO: mention the endpoint is streaming, its framing strategy
+--
+-- Also there are no samples.
+--
+-- TODO: AcceptFraming for content-type
+instance {-# OVERLAPPABLE #-}
+        (Accept ct, KnownNat status, ReflectMethod method)
+    => HasDocs (Stream method status framing ct a) where
+  docsFor Proxy (endpoint, action) DocOptions{..} =
+    single endpoint' action'
+
+    where endpoint' = endpoint & method .~ method'
+          action' = action & response.respTypes .~ allMime t
+                           & response.respStatus .~ status
+          t = Proxy :: Proxy '[ct]
+          method' = reflectMethod (Proxy :: Proxy method)
+          status = fromInteger $ natVal (Proxy :: Proxy status)
+
+instance {-# OVERLAPPING #-}
         (ToSample a, AllMimeRender (ct ': cts) a, KnownNat status
         , ReflectMethod method, AllHeaderSamples ls, GetHeaders (HList ls))
     => HasDocs (Verb method status (ct ': cts) (Headers ls a)) where
@@ -930,7 +991,6 @@ instance (KnownSymbol desc, HasDocs api)
 -- both are even defined) for any particular type.
 instance (ToSample a, AllMimeRender (ct ': cts) a, HasDocs api)
       => HasDocs (ReqBody' mods (ct ': cts) a :> api) where
-
   docsFor Proxy (endpoint, action) opts@DocOptions{..} =
     docsFor subApiP (endpoint, action') opts
 
@@ -940,6 +1000,18 @@ instance (ToSample a, AllMimeRender (ct ': cts) a, HasDocs api)
                            & rqtypes .~ allMime t
           t = Proxy :: Proxy (ct ': cts)
           p = Proxy :: Proxy a
+
+-- | TODO: this instance is incomplete.
+instance (HasDocs api, Accept ctype) => HasDocs (StreamBody' mods framing ctype a :> api) where
+    docsFor Proxy (endpoint, action) opts =
+        docsFor subApiP (endpoint, action') opts
+      where
+        subApiP = Proxy :: Proxy api
+
+        action' :: Action
+        action' = action & rqtypes .~ toList (contentTypes t)
+
+        t = Proxy :: Proxy ctype
 
 instance (KnownSymbol path, HasDocs api) => HasDocs (path :> api) where
 
@@ -1005,3 +1077,6 @@ instance ToSample a => ToSample (Product a)
 instance ToSample a => ToSample (First a)
 instance ToSample a => ToSample (Last a)
 instance ToSample a => ToSample (Dual a)
+
+-- $setup
+-- >>> :set -XOverloadedStrings

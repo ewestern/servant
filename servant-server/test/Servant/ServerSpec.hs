@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP                  #-}
 {-# LANGUAGE DataKinds            #-}
 {-# LANGUAGE DeriveGeneric        #-}
 {-# LANGUAGE FlexibleContexts     #-}
@@ -9,65 +8,71 @@
 {-# LANGUAGE TypeFamilies         #-}
 {-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-#if __GLASGOW_HASKELL__ >= 800
 {-# OPTIONS_GHC -freduction-depth=100 #-}
-#else
-{-# OPTIONS_GHC -fcontext-stack=100 #-}
-#endif
 
 module Servant.ServerSpec where
 
-import           Control.Monad              (forM_, when, unless)
-import           Control.Monad.Error.Class  (MonadError (..))
-import           Data.Aeson                 (FromJSON, ToJSON, decode', encode)
-import qualified Data.ByteString.Base64     as Base64
-import           Data.Char                  (toUpper)
-import           Data.Monoid
-import           Data.Proxy                 (Proxy (Proxy))
-import           Data.String                (fromString)
-import           Data.String.Conversions    (cs)
-import qualified Data.Text                  as T
-import           GHC.Generics               (Generic)
-import           Network.HTTP.Types         (Status (..), hAccept, hContentType,
-                                             methodDelete, methodGet,
-                                             methodHead, methodPatch,
-                                             methodPost, methodPut, ok200,
-                                             imATeapot418,
-                                             parseQuery)
-import           Network.Wai                (Application, Request, requestHeaders, pathInfo,
-                                             queryString, rawQueryString,
-                                             responseLBS)
-import           Network.Wai.Test           (defaultRequest, request,
-                                             runSession, simpleBody,
-                                             simpleHeaders, simpleStatus)
-import           Servant.API                ((:<|>) (..), (:>), AuthProtect,
-                                             BasicAuth, BasicAuthData(BasicAuthData),
-                                             Capture, CaptureAll, Delete, Get, Header,
-                                             Headers, HttpVersion,
-                                             IsSecure (..), JSON,
-                                             NoContent (..), Patch, PlainText,
-                                             Post, Put, EmptyAPI,
-                                             QueryFlag, QueryParam, QueryParams,
-                                             Raw, RemoteHost, ReqBody,
-                                             StdMethod (..), Verb, addHeader)
-import           Servant.API.Internal.Test.ComprehensiveAPI
-import           Servant.Server             (Server, Handler, Tagged (..), err401, err403,
-                                             err404, serve, serveWithContext,
-                                             Context((:.), EmptyContext), emptyServer)
-import           Test.Hspec                 (Spec, context, describe, it,
-                                             shouldBe, shouldContain)
-import qualified Test.Hspec.Wai             as THW
-import           Test.Hspec.Wai             (get, liftIO, matchHeaders,
-                                             matchStatus, shouldRespondWith,
-                                             with, (<:>))
+import           Prelude ()
+import           Prelude.Compat
 
-import           Servant.Server.Internal.BasicAuth (BasicAuthCheck(BasicAuthCheck),
-                                                    BasicAuthResult(Authorized,Unauthorized))
+import           Control.Monad
+                 (forM_, unless, when)
+import           Control.Monad.Error.Class
+                 (MonadError (..))
+import           Data.Aeson
+                 (FromJSON, ToJSON, decode', encode)
+import qualified Data.ByteString                   as BS
+import qualified Data.ByteString.Base64            as Base64
+import           Data.Char
+                 (toUpper)
+import           Data.Maybe
+                 (fromMaybe)
+import           Data.Proxy
+                 (Proxy (Proxy))
+import           Data.String
+                 (fromString)
+import           Data.String.Conversions
+                 (cs)
+import qualified Data.Text                         as T
+import           GHC.Generics
+                 (Generic)
+import           Network.HTTP.Types
+                 (QueryItem, Status (..), hAccept, hContentType, imATeapot418,
+                 methodDelete, methodGet, methodHead, methodPatch, methodPost,
+                 methodPut, ok200, parseQuery)
+import           Network.Wai
+                 (Application, Middleware, Request, pathInfo, queryString,
+                 rawQueryString, requestHeaders, responseLBS)
+import           Network.Wai.Test
+                 (defaultRequest, request, runSession, simpleBody,
+                 simpleHeaders, simpleStatus)
+import           Servant.API
+                 ((:<|>) (..), (:>), AuthProtect, BasicAuth,
+                 BasicAuthData (BasicAuthData), Capture, Capture', CaptureAll,
+                 Delete, EmptyAPI, Get, Header, Headers, HttpVersion,
+                 IsSecure (..), JSON, Lenient, NoContent (..), NoContentVerb,
+                 NoFraming, OctetStream, Patch, PlainText, Post, Put,
+                 QueryFlag, QueryParam, QueryParams, Raw, RemoteHost, ReqBody,
+                 SourceIO, StdMethod (..), Stream, Strict, Verb, addHeader)
+import           Servant.Server
+                 (Context ((:.), EmptyContext), Handler, Server, Tagged (..),
+                 emptyServer, err401, err403, err404, serve, serveWithContext)
+import           Servant.Test.ComprehensiveAPI
+import qualified Servant.Types.SourceT             as S
+import           Test.Hspec
+                 (Spec, context, describe, it, shouldBe, shouldContain)
+import           Test.Hspec.Wai
+                 (get, liftIO, matchHeaders, matchStatus, shouldRespondWith,
+                 with, (<:>))
+import qualified Test.Hspec.Wai                    as THW
+
 import           Servant.Server.Experimental.Auth
-                                            (AuthHandler, AuthServerData,
-                                             mkAuthHandler)
+                 (AuthHandler, AuthServerData, mkAuthHandler)
+import           Servant.Server.Internal.BasicAuth
+                 (BasicAuthCheck (BasicAuthCheck),
+                 BasicAuthResult (Authorized, Unauthorized))
 import           Servant.Server.Internal.Context
-                                            (NamedContext(..))
+                 (NamedContext (..))
 
 -- * comprehensive api test
 
@@ -83,6 +88,7 @@ spec :: Spec
 spec = do
   verbSpec
   captureSpec
+  captureAllSpec
   queryParamSpec
   reqBodySpec
   headerSpec
@@ -99,12 +105,13 @@ spec = do
 
 type VerbApi method status
     =                Verb method status '[JSON] Person
- :<|> "noContent" :> Verb method status '[JSON] NoContent
+ :<|> "noContent" :> NoContentVerb method
  :<|> "header"    :> Verb method status '[JSON] (Headers '[Header "H" Int] Person)
  :<|> "headerNC"  :> Verb method status '[JSON] (Headers '[Header "H" Int] NoContent)
  :<|> "accept"    :> (    Verb method status '[JSON] Person
                      :<|> Verb method status '[PlainText] String
                      )
+ :<|> "stream"    :> Stream method status NoFraming OctetStream (SourceIO BS.ByteString)
 
 verbSpec :: Spec
 verbSpec = describe "Servant.API.Verb" $ do
@@ -114,6 +121,8 @@ verbSpec = describe "Servant.API.Verb" $ do
           :<|> return (addHeader 5 alice)
           :<|> return (addHeader 10 NoContent)
           :<|> (return alice :<|> return "B")
+          :<|> return (S.source ["bytestring"])
+
       get200     = Proxy :: Proxy (VerbApi 'GET 200)
       post210    = Proxy :: Proxy (VerbApi 'POST 210)
       put203     = Proxy :: Proxy (VerbApi 'PUT 203)
@@ -133,7 +142,7 @@ verbSpec = describe "Servant.API.Verb" $ do
 
           it "returns no content on NoContent" $ do
               response <- THW.request method "/noContent" [] ""
-              liftIO $ statusCode (simpleStatus response) `shouldBe` status
+              liftIO $ statusCode (simpleStatus response) `shouldBe` 204
               liftIO $ simpleBody response `shouldBe` ""
 
           -- HEAD should not return body
@@ -179,6 +188,11 @@ verbSpec = describe "Servant.API.Verb" $ do
             liftIO $ simpleHeaders response `shouldContain`
               [("Content-Type", "application/json;charset=utf-8")]
 
+          it "works for Stream as for Result" $ do
+              response <- THW.request method "/stream" [] ""
+              liftIO $ statusCode (simpleStatus response) `shouldBe` status
+              liftIO $ simpleBody response `shouldBe` "bytestring"
+
   test "GET 200" get200 methodGet 200
   test "POST 210" post210 methodPost 210
   test "PUT 203" put203 methodPut 203
@@ -192,13 +206,27 @@ verbSpec = describe "Servant.API.Verb" $ do
 ------------------------------------------------------------------------------
 
 type CaptureApi = Capture "legs" Integer :> Get '[JSON] Animal
+                :<|> "ears" :> Capture' '[Lenient] "ears" Integer :> Get '[JSON] Animal
+                :<|> "eyes" :> Capture' '[Strict] "eyes" Integer :> Get '[JSON] Animal
 captureApi :: Proxy CaptureApi
 captureApi = Proxy
-captureServer :: Integer -> Handler Animal
-captureServer legs = case legs of
-  4 -> return jerry
-  2 -> return tweety
-  _ -> throwError err404
+
+captureServer :: Server CaptureApi
+captureServer = getLegs :<|> getEars :<|> getEyes
+  where getLegs :: Integer -> Handler Animal
+        getLegs legs = case legs of
+          4 -> return jerry
+          2 -> return tweety
+          _ -> throwError err404
+
+        getEars :: Either String Integer -> Handler Animal
+        getEars (Left _) = return chimera -- ignore integer parse error, return weird animal
+        getEars (Right 2) = return jerry
+        getEars (Right _) = throwError err404
+
+        getEyes :: Integer -> Handler Animal
+        getEyes 2 = return jerry
+        getEyes _ = throwError err404
 
 captureSpec :: Spec
 captureSpec = do
@@ -211,6 +239,17 @@ captureSpec = do
 
       it "returns 400 if the decoding fails" $ do
         get "/notAnInt" `shouldRespondWith` 400
+
+      it "returns an animal if eyes or ears are 2" $ do
+        get "/ears/2" `shouldRespondWith` 200
+        get "/eyes/2" `shouldRespondWith` 200
+
+      it "returns a weird animal on Lenient Capture" $ do
+        response <- get "/ears/bla"
+        liftIO $ decode' (simpleBody response) `shouldBe` Just chimera
+
+      it "returns 400 if parsing integer fails on Strict Capture" $ do
+        get "/eyes/bla" `shouldRespondWith` 400
 
     with (return (serve
         (Proxy :: Proxy (Capture "captured" String :> Raw))
@@ -302,117 +341,123 @@ qpServer = queryParamServer :<|> qpNames :<|> qpCapitalize :<|> qpAge :<|> qpAge
         queryParamServer (Just name_) = return alice{name = name_}
         queryParamServer Nothing = return alice
 
+
+
 queryParamSpec :: Spec
 queryParamSpec = do
+  let mkRequest params pinfo = Network.Wai.Test.request defaultRequest
+        { rawQueryString = params
+        , queryString    = parseQuery params
+        , pathInfo       = pinfo
+        }
+
   describe "Servant.API.QueryParam" $ do
       it "allows retrieving simple GET parameters" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-          let params1 = "?name=bob"
-          response1 <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params1,
-            queryString = parseQuery params1
-           }
-          liftIO $ do
-            decode' (simpleBody response1) `shouldBe` Just alice{
-              name = "bob"
-             }
-
-      it "allows retrieving lists in GET parameters" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-          let params2 = "?names[]=bob&names[]=john"
-          response2 <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params2,
-            queryString = parseQuery params2,
-            pathInfo = ["a"]
-           }
-          liftIO $
-            decode' (simpleBody response2) `shouldBe` Just alice{
-              name = "john"
-             }
-
-      it "parses a query parameter" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-        let params = "?age=55"
-        response <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params,
-            queryString = parseQuery params,
-            pathInfo = ["param"]
-           }
-        liftIO $
-            decode' (simpleBody response) `shouldBe` Just alice{
-              age = 55
+        flip runSession (serve queryParamApi qpServer) $ do
+          response1 <- mkRequest "?name=bob" []
+          liftIO $ decode' (simpleBody response1) `shouldBe` Just alice
+            { name = "bob"
             }
 
+      it "allows retrieving lists in GET parameters" $
+        flip runSession (serve queryParamApi qpServer) $ do
+          response2 <- mkRequest "?names[]=bob&names[]=john" ["a"]
+          liftIO $ decode' (simpleBody response2) `shouldBe` Just alice
+            { name = "john"
+            }
+
+      it "parses a query parameter" $
+        flip runSession (serve queryParamApi qpServer) $ do
+        response <- mkRequest "?age=55" ["param"]
+        liftIO $ decode' (simpleBody response) `shouldBe` Just alice
+          { age = 55
+          }
+
       it "generates an error on query parameter parse failure" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-        let params = "?age=foo"
-        response <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params,
-            queryString = parseQuery params,
-            pathInfo = ["param"]
-           }
+        flip runSession (serve queryParamApi qpServer) $ do
+        response <- mkRequest "?age=foo" ["param"]
         liftIO $ statusCode (simpleStatus response) `shouldBe` 400
         return ()
 
       it "parses multiple query parameters" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-        let params = "?ages=10&ages=22"
-        response <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params,
-            queryString = parseQuery params,
-            pathInfo = ["multiparam"]
-           }
-        liftIO $
-            decode' (simpleBody response) `shouldBe` Just alice{
-              age = 32
-            }
+        flip runSession (serve queryParamApi qpServer) $ do
+        response <- mkRequest "?ages=10&ages=22" ["multiparam"]
+        liftIO $ decode' (simpleBody response) `shouldBe` Just alice
+          { age = 32
+          }
 
       it "generates an error on parse failures of multiple parameters" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-        let params = "?ages=2&ages=foo"
-        response <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params,
-            queryString = parseQuery params,
-            pathInfo = ["multiparam"]
-           }
+        flip runSession (serve queryParamApi qpServer) $ do
+        response <- mkRequest "?ages=2&ages=foo" ["multiparam"]
         liftIO $ statusCode (simpleStatus response) `shouldBe` 400
         return ()
 
-
       it "allows retrieving value-less GET parameters" $
-        (flip runSession) (serve queryParamApi qpServer) $ do
-          let params3 = "?capitalize"
-          response3 <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params3,
-            queryString = parseQuery params3,
-            pathInfo = ["b"]
-           }
-          liftIO $
-            decode' (simpleBody response3) `shouldBe` Just alice{
-              name = "ALICE"
-             }
+        flip runSession (serve queryParamApi qpServer) $ do
+          response3 <- mkRequest "?capitalize" ["b"]
+          liftIO $ decode' (simpleBody response3) `shouldBe` Just alice
+            { name = "ALICE"
+            }
 
-          let params3' = "?capitalize="
-          response3' <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params3',
-            queryString = parseQuery params3',
-            pathInfo = ["b"]
-           }
-          liftIO $
-            decode' (simpleBody response3') `shouldBe` Just alice{
-              name = "ALICE"
-             }
+          response3' <- mkRequest "?capitalize=" ["b"]
+          liftIO $ decode' (simpleBody response3') `shouldBe` Just alice
+            { name = "ALICE"
+            }
 
-          let params3'' = "?unknown="
-          response3'' <- Network.Wai.Test.request defaultRequest{
-            rawQueryString = params3'',
-            queryString = parseQuery params3'',
-            pathInfo = ["b"]
-           }
-          liftIO $
-            decode' (simpleBody response3'') `shouldBe` Just alice{
-              name = "Alice"
-             }
+          response3'' <- mkRequest "?unknown=" ["b"]
+          liftIO $ decode' (simpleBody response3'') `shouldBe` Just alice
+            { name = "Alice"
+            }
+
+      describe "Uses queryString instead of rawQueryString" $ do
+        -- test query parameters rewriter
+        let queryRewriter :: Middleware
+            queryRewriter app req = app req
+                { queryString = fmap rewrite $ queryString req
+                }
+              where
+                rewrite :: QueryItem -> QueryItem
+                rewrite (k, v) = (fromMaybe k (BS.stripPrefix "person_" k), v)
+
+        let app = queryRewriter $ serve queryParamApi qpServer
+
+        it "allows rewriting for simple GET/query parameters" $
+          flip runSession app $ do
+            response1 <- mkRequest "?person_name=bob" []
+            liftIO $ decode' (simpleBody response1) `shouldBe` Just alice
+              { name = "bob"
+              }
+
+        it "allows rewriting for lists in GET parameters" $
+          flip runSession app $ do
+            response2 <- mkRequest "?person_names[]=bob&person_names[]=john" ["a"]
+            liftIO $ decode' (simpleBody response2) `shouldBe` Just alice
+              { name = "john"
+              }
+
+        it "allows rewriting when parsing multiple query parameters" $
+          flip runSession app $ do
+            response <- mkRequest "?person_ages=10&person_ages=22" ["multiparam"]
+            liftIO $ decode' (simpleBody response) `shouldBe` Just alice
+              { age = 32
+              }
+
+        it "allows retrieving value-less GET parameters" $
+          flip runSession app $ do
+            response3 <- mkRequest "?person_capitalize" ["b"]
+            liftIO $ decode' (simpleBody response3) `shouldBe` Just alice
+              { name = "ALICE"
+              }
+
+            response3' <- mkRequest "?person_capitalize=" ["b"]
+            liftIO $ decode' (simpleBody response3') `shouldBe` Just alice
+              { name = "ALICE"
+              }
+
+            response3'' <- mkRequest "?person_unknown=" ["b"]
+            liftIO $ decode' (simpleBody response3'') `shouldBe` Just alice
+              { name = "Alice"
+              }
 
 -- }}}
 ------------------------------------------------------------------------------
@@ -507,7 +552,7 @@ rawSpec :: Spec
 rawSpec = do
   describe "Servant.API.Raw" $ do
     it "runs applications" $ do
-      (flip runSession) (serve rawApi (rawApplication (const (42 :: Integer)))) $ do
+      flip runSession (serve rawApi (rawApplication (const (42 :: Integer)))) $ do
         response <- Network.Wai.Test.request defaultRequest{
           pathInfo = ["foo"]
          }
@@ -515,7 +560,7 @@ rawSpec = do
           simpleBody response `shouldBe` "42"
 
     it "gets the pathInfo modified" $ do
-      (flip runSession) (serve rawApi (rawApplication pathInfo)) $ do
+      flip runSession (serve rawApi (rawApplication pathInfo)) $ do
         response <- Network.Wai.Test.request defaultRequest{
           pathInfo = ["foo", "bar"]
          }
@@ -767,6 +812,10 @@ jerry = Animal "Mouse" 4
 
 tweety :: Animal
 tweety = Animal "Bird" 2
+
+-- weird animal with non-integer amount of ears
+chimera :: Animal
+chimera = Animal "Chimera" (-1)
 
 beholder :: Animal
 beholder = Animal "Beholder" 0

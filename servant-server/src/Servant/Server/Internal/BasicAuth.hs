@@ -1,29 +1,38 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveFunctor      #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE OverloadedStrings  #-}
 
 module Servant.Server.Internal.BasicAuth where
 
-import           Control.Monad          (guard)
-import           Control.Monad.Trans    (liftIO)
-import qualified Data.ByteString        as BS
-import           Data.ByteString.Base64 (decodeLenient)
-import           Data.Monoid            ((<>))
-import           Data.Typeable          (Typeable)
-import           Data.Word8             (isSpace, toLower, _colon)
+import           Control.Monad
+                 (guard)
+import           Control.Monad.Trans
+                 (liftIO)
+import qualified Data.ByteString                     as BS
+import           Data.ByteString.Base64
+                 (decodeLenient)
+import           Data.Monoid
+                 ((<>))
+import           Data.Typeable
+                 (Typeable)
+import           Data.Word8
+                 (isSpace, toLower, _colon)
 import           GHC.Generics
-import           Network.HTTP.Types     (Header)
-import           Network.Wai            (Request, requestHeaders)
+import           Network.HTTP.Types
+                 (Header)
+import           Network.Wai
+                 (Request, requestHeaders)
 
-import           Servant.API.BasicAuth (BasicAuthData(BasicAuthData))
-import           Servant.Server.Internal.RoutingApplication
-import           Servant.Server.Internal.ServantErr
+import           Servant.API.BasicAuth
+                 (BasicAuthData (BasicAuthData))
+import           Servant.Server.Internal.DelayedIO
+import           Servant.Server.Internal.ServerError
 
 -- * Basic Auth
 
 -- | servant-server's current implementation of basic authentication is not
--- immune to certian kinds of timing attacks. Decoding payloads does not take
+-- immune to certain kinds of timing attacks. Decoding payloads does not take
 -- a fixed amount of time.
 
 -- | The result of authentication/authorization
